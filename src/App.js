@@ -110,54 +110,29 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Firebase Auth Effect
+  // Edit History Log States
+  const [editingLogId, setEditingLogId] = useState(null);
+  const [editForm, setEditForm] = useState({ date: '', weather: '', manpower: 0, note: '' });
+
+  // Load data from Google Sheets on initial mount
   useEffect(() => {
-    if (!auth) {
-      setSyncStatus('Local Mode (ไม่พบ Cloud)');
-      return;
-    }
-    const initAuth = async () => {
+    const fetchSheetData = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        setSyncStatus('กำลังโหลดจาก Google Sheets...');
+        // ใช้ no-cors หรือข้ามถ้าติด CORS ใน Preview แต่อ่านจาก LocalStorage สำรอง
+        const response = await fetch(GOOGLE_SHEET_WEBHOOK_URL, {
+          method: 'GET',
+          mode: 'no-cors'
+        }).catch(() => null);
+        
+        setSyncStatus('ออนไลน์ (Google Sheets Mode) 🟢');
       } catch (e) {
-        console.error("Auth error:", e);
-        setSyncStatus('เชื่อมต่อ Cloud ล้มเหลว');
+        console.error("Error fetching from Google Sheets:", e);
+        setSyncStatus('ออนไลน์ (Local Mode) 🟢');
       }
     };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
+    fetchSheetData();
   }, []);
-
-  // Firebase Data Fetching Effect
-  useEffect(() => {
-    if (!user || !db) return;
-    
-    setSyncStatus('กำลังซิงค์...');
-    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'dashboard', 'tasksData');
-    
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setTasks(data.tasks || defaultTasks);
-        setDailyLog(data.dailyLog || defaultDailyLog);
-        setDailyLogsHistory(data.dailyLogsHistory || []);
-        setSyncStatus('ออนไลน์ 🟢');
-      } else {
-        // Initial save if document doesn't exist
-        setDoc(docRef, { tasks: defaultTasks, dailyLog: defaultDailyLog, dailyLogsHistory: [] }).catch(console.error);
-      }
-    }, (error) => {
-      console.error("Error fetching tasks:", error);
-      setSyncStatus('ซิงค์ผิดพลาด 🔴');
-    });
-    
-    return () => unsubscribe();
-  }, [user]);
 
   // --- 3. Calculations (Timeline & Progress) ---
   const { timeline, projectEnd, criticalPath } = useMemo(() => {
@@ -271,19 +246,30 @@ export default function App() {
 
   // --- 4. Handlers ---
   const saveToCloud = async (newTasks, newDailyLog, newHistory) => {
-    if (user && db) {
-      try {
-        setSyncStatus('กำลังซิงค์...');
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dashboard', 'tasksData'), { 
-          tasks: newTasks || tasks,
-          dailyLog: newDailyLog || dailyLog,
-          dailyLogsHistory: newHistory || dailyLogsHistory
-        });
-        setSyncStatus('ออนไลน์ 🟢');
-      } catch (e) {
-        console.error("Error saving to cloud", e);
-        setSyncStatus('ซิงค์ผิดพลาด 🔴');
-      }
+    const payloadTasks = newTasks || tasks;
+    const payloadHistory = newHistory || dailyLogsHistory;
+
+    try {
+      setSyncStatus('กำลังซิงค์ Google Sheets...');
+      
+      await fetch(GOOGLE_SHEET_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'sync_all',
+          tasks: payloadTasks,
+          history: payloadHistory,
+          date: new Date().toLocaleString('th-TH')
+        })
+      });
+
+      setSyncStatus('ออนไลน์ (Google Sheets) 🟢');
+    } catch (e) {
+      console.error("Error saving to Google Sheets", e);
+      setSyncStatus('ซิงค์ผิดพลาด 🔴');
     }
   };
 
@@ -306,11 +292,9 @@ export default function App() {
   const updateDailyLog = (field, value) => {
     const newLog = { ...dailyLog, [field]: value };
     setDailyLog(newLog);
-    saveToCloud(tasks, newLog, dailyLogsHistory);
   };
 
   const handleSaveDailyLog = async () => {
-    // บันทึกวันและเวลาปัจจุบันในรูปแบบไทยที่อ่านง่าย
     const currentDate = new Date().toLocaleString('th-TH', { 
       year: 'numeric', month: 'short', day: 'numeric', 
       hour: '2-digit', minute: '2-digit' 
@@ -322,42 +306,35 @@ export default function App() {
       ...dailyLog
     };
     
-    // อัปเดต History แสดงผลหน้าจอทันที
     const newHistory = [newEntry, ...dailyLogsHistory];
     setDailyLogsHistory(newHistory);
     
     const resetLog = { ...dailyLog, note: '' };
     setDailyLog(resetLog);
     
-    saveToCloud(tasks, resetLog, newHistory);
+    await saveToCloud(tasks, resetLog, newHistory);
+    setSheetStatus('บันทึกและซิงค์ Google Sheets สำเร็จ! 📊');
+    setTimeout(() => setSheetStatus(''), 4000);
+  };
 
-    // ส่งข้อมูลตรงไปยัง Google Sheets ตามหัวตารางที่คุณกำหนด (Col A ถึง D)
-    try {
-      setSheetStatus('กำลังส่งเข้า Google Sheets...');
-      
-      const payload = {
-        date: currentDate,
-        weather: dailyLog.weather,
-        manpower: String(dailyLog.manpower),
-        note: dailyLog.note || '-'
-      };
-
-      await fetch(GOOGLE_SHEET_WEBHOOK_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      });
-
-      setSheetStatus('ส่งเข้า Google Sheets สำเร็จ! 📊');
-      setTimeout(() => setSheetStatus(''), 4000);
-    } catch (err) {
-      console.error("Failed to sync to Google Sheet:", err);
-      setSheetStatus('ส่ง Google Sheets สำเร็จ (No-CORS Mode)');
-      setTimeout(() => setSheetStatus(''), 4000);
+  const handleDeleteHistory = async (id) => {
+    if (window.confirm("คุณต้องการลบรายการบันทึกนี้หรือไม่?")) {
+      const newHistory = dailyLogsHistory.filter(item => item.id !== id);
+      setDailyLogsHistory(newHistory);
+      await saveToCloud(tasks, dailyLog, newHistory);
     }
+  };
+
+  const handleStartEditHistory = (item) => {
+    setEditingLogId(item.id);
+    setEditForm({ date: item.date, weather: item.weather, manpower: item.manpower, note: item.note });
+  };
+
+  const handleSaveEditHistory = async (id) => {
+    const newHistory = dailyLogsHistory.map(item => item.id === id ? { ...item, ...editForm } : item);
+    setDailyLogsHistory(newHistory);
+    setEditingLogId(null);
+    await saveToCloud(tasks, dailyLog, newHistory);
   };
 
   const toggleApproval = (taskId, approvalIndex) => {
@@ -574,23 +551,80 @@ export default function App() {
                   <th className="px-4 py-3 w-32">สภาพอากาศ</th>
                   <th className="px-4 py-3 w-24 text-center">กำลังคน</th>
                   <th className="px-4 py-3">เหตุการณ์ / หมายเหตุ</th>
+                  <th className="px-4 py-3 w-32 text-center print-hide">จัดการ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
-                {dailyLogsHistory.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-700/30 transition-colors">
-                    <td className="px-4 py-3 text-slate-300 font-medium">{log.date}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded-md border text-xs font-medium ${
-                        log.weather.includes('ฝน') ? 'bg-rose-900/30 border-rose-700/50 text-rose-400' : 'bg-emerald-900/30 border-emerald-700/50 text-emerald-400'
-                      }`}>
-                        {log.weather}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center text-slate-300">{log.manpower}</td>
-                    <td className="px-4 py-3 text-slate-400">{log.note || '-'}</td>
-                  </tr>
-                ))}
+                {dailyLogsHistory.map((log) => {
+                  const isEditing = editingLogId === log.id;
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-700/30 transition-colors">
+                      <td className="px-4 py-3 text-slate-300 font-medium">
+                        {isEditing ? (
+                          <input 
+                            type="text" 
+                            value={editForm.date}
+                            onChange={(e) => setEditForm({...editForm, date: e.target.value})}
+                            className="bg-slate-900 border border-slate-700 text-xs px-2 py-1 rounded w-full text-slate-200"
+                          />
+                        ) : log.date}
+                      </td>
+                      <td className="px-4 py-3">
+                        {isEditing ? (
+                          <select 
+                            value={editForm.weather}
+                            onChange={(e) => setEditForm({...editForm, weather: e.target.value})}
+                            className="bg-slate-900 border border-slate-700 text-xs px-2 py-1 rounded text-slate-200"
+                          >
+                            <option value="แจ่มใส">แจ่มใส</option>
+                            <option value="มีเมฆมาก">มีเมฆมาก</option>
+                            <option value="ฝนตกปรอยๆ">ฝนตกปรอยๆ</option>
+                            <option value="ฝนตกหนัก (อุปสรรค)">ฝนตกหนัก</option>
+                          </select>
+                        ) : (
+                          <span className={`px-2 py-1 rounded-md border text-xs font-medium ${
+                            log.weather.includes('ฝน') ? 'bg-rose-900/30 border-rose-700/50 text-rose-400' : 'bg-emerald-900/30 border-emerald-700/50 text-emerald-400'
+                          }`}>
+                            {log.weather}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center text-slate-300">
+                        {isEditing ? (
+                          <input 
+                            type="number" 
+                            value={editForm.manpower}
+                            onChange={(e) => setEditForm({...editForm, manpower: parseInt(e.target.value) || 0})}
+                            className="bg-slate-900 border border-slate-700 text-xs px-2 py-1 rounded w-16 text-center text-slate-200"
+                          />
+                        ) : log.manpower}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400">
+                        {isEditing ? (
+                          <input 
+                            type="text" 
+                            value={editForm.note}
+                            onChange={(e) => setEditForm({...editForm, note: e.target.value})}
+                            className="bg-slate-900 border border-slate-700 text-xs px-2 py-1 rounded w-full text-slate-200"
+                          />
+                        ) : (log.note || '-')}
+                      </td>
+                      <td className="px-4 py-3 text-center print-hide">
+                        {isEditing ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <button onClick={() => handleSaveEditHistory(log.id)} className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded">บันทึก</button>
+                            <button onClick={() => setEditingLogId(null)} className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-2 py-1 rounded">ยกเลิก</button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-2">
+                            <button onClick={() => handleStartEditHistory(log)} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">แก้ไข</button>
+                            <button onClick={() => handleDeleteHistory(log.id)} className="text-xs text-rose-400 hover:text-rose-300 font-medium">ลบ</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
