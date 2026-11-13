@@ -104,6 +104,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('tasks');
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [syncStatus, setSyncStatus] = useState('กำลังเชื่อมต่อ Cloud...');
+  const [sheetStatus, setSheetStatus] = useState(''); // สถานะการส่งข้อมูล Google Sheet
   
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -332,25 +333,31 @@ export default function App() {
     // บันทึกขึ้น Cloud (Firebase)
     saveToCloud(tasks, resetLog, newHistory);
 
-    // ส่งข้อมูลไปยัง Google Sheets ตามหัวข้อคอลัมน์ที่กำหนด:
-    // Col A: วันที่และเวลา, Col B: สภาพอากาศ, Col C: กำลังคน (คน), Col D: บันทึกเหตุการณ์หน้างาน
+    // ส่งข้อมูลไปยัง Google Sheets (ใช้ URLencoded form เพื่อให้ Apps Script doPost(e) อ่าน e.parameter ได้ง่ายและชัวร์ที่สุด)
     try {
-      // ส่งแบบ no-cors หรือฟอร์มโพสต์เพื่อป้องกันปัญหา CORS ปกติของ Apps Script Web App
+      setSheetStatus('กำลังส่งเข้า Google Sheets...');
+      
+      const formData = new URLSearchParams();
+      formData.append('date', currentDate);
+      formData.append('weather', dailyLog.weather);
+      formData.append('manpower', String(dailyLog.manpower));
+      formData.append('note', dailyLog.note || '-');
+
       await fetch(GOOGLE_SHEET_WEBHOOK_URL, {
         method: 'POST',
         mode: 'no-cors',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: JSON.stringify({
-          date: currentDate,
-          weather: dailyLog.weather,
-          manpower: dailyLog.manpower,
-          note: dailyLog.note || '-'
-        })
+        body: formData.toString()
       });
+
+      setSheetStatus('ส่งเข้า Google Sheets สำเร็จ! 📊');
+      setTimeout(() => setSheetStatus(''), 4000);
     } catch (err) {
       console.error("Failed to sync to Google Sheet:", err);
+      setSheetStatus('ส่ง Google Sheets ไม่สำเร็จ ❌');
+      setTimeout(() => setSheetStatus(''), 4000);
     }
   };
 
@@ -435,7 +442,7 @@ export default function App() {
               className="bg-slate-900 border border-slate-700 text-sm rounded-md px-2 py-1.5 text-slate-300 focus:outline-none focus:border-indigo-500"
             />
           </div>
-          <div className="flex flex-col gap-1 md:col-span-5">
+          <div className="flex flex-col gap-1 md:col-span-4">
             <label className="text-xs text-slate-400">บันทึกเหตุการณ์หน้างาน</label>
             <input 
               type="text" 
@@ -446,13 +453,16 @@ export default function App() {
               onKeyDown={(e) => { if (e.key === 'Enter') handleSaveDailyLog(); }}
             />
           </div>
-          <div className="md:col-span-2">
+          <div className="md:col-span-3 flex flex-col gap-1">
             <button 
               onClick={handleSaveDailyLog}
               className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-2 py-1.5 rounded-md flex items-center justify-center gap-1.5 transition-colors h-[34px] border border-indigo-500"
             >
               <CheckCircle2 className="w-4 h-4 shrink-0" /> บันทึก
             </button>
+            {sheetStatus && (
+              <span className="text-[10px] text-emerald-400 text-center animate-pulse">{sheetStatus}</span>
+            )}
           </div>
         </div>
       </div>
