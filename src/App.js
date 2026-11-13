@@ -43,6 +43,55 @@ export default function App() {
   const [dailyNote, setDailyNote] = useState("");
   const [dailyLogs, setDailyLogs] = useState([]);
 
+  // ข้อมูลแผนงานก่อสร้างศูนย์เยาวชน
+  const [tasks, setTasks] = useState([
+    { id: 1, category: "1. เตรียมการ", name: "สำรวจพื้นที่และเคลียร์พื้นที่ก่อสร้าง", duration: 5, status: "ยังไม่เริ่ม", weight: 5 },
+    { id: 2, category: "1. เตรียมการ", name: "ติดตั้งป้ายโครงการและสิ่งอำนวยความสะดวก", duration: 3, status: "ยังไม่เริ่ม", weight: 3 },
+    { id: 3, category: "2. งานโครงสร้าง", name: "ขุดดินและเตรียมฐานรากอาคาร", duration: 10, status: "ยังไม่เริ่ม", weight: 10 },
+    { id: 4, category: "2. งานโครงสร้าง", name: "เทคอนกรีตฐานรากและคานคอดิน", duration: 12, status: "ยังไม่เริ่ม", weight: 12 },
+    { id: 5, category: "2. งานโครงสร้าง", name: "ติดตั้งเสาและโครงสร้างเหล็กชั้น 1", duration: 15, status: "ยังไม่เริ่ม", weight: 15 },
+    { id: 6, category: "3. งานสถาปัตยกรรม", name: "ก่อผนังและฉาบปูน", duration: 15, status: "ยังไม่เริ่ม", weight: 15 },
+    { id: 7, category: "3. งานสถาปัตยกรรม", name: "ติดตั้งระบบไฟฟ้าและประปาภายใน", duration: 12, status: "ยังไม่เริ่ม", weight: 12 },
+    { id: 8, category: "3. งานสถาปัตยกรรม", name: "ปูกระเบื้องและงานสี", duration: 10, status: "ยังไม่เริ่ม", weight: 10 },
+    { id: 9, category: "4. งานภายนอกและส่งมอบ", name: "ปรับภูมิทัศน์และทำความสะอาดรอบอาคาร", duration: 8, status: "ยังไม่เริ่ม", weight: 8 },
+    { id: 10, category: "4. งานภายนอกและส่งมอบ", name: "ตรวจสอบระบบและส่งมอบงาน", duration: 5, status: "ยังไม่เริ่ม", weight: 10 },
+  ]);
+
+  // ฟังก์ชันอัปเดตสถานะงาน
+  const handleStatusChange = (id, newStatus) => {
+    setTasks(tasks.map(t => t.id === id ? { ...t, status: newStatus } : t));
+  };
+
+  // ฟังก์ชันแก้ไขจำนวนวันใน Gantt
+  const handleDurationChange = (id, newDuration) => {
+    const val = parseInt(newDuration) || 0;
+    setTasks(tasks.map(t => t.id === id ? { ...t, duration: val } : t));
+  };
+
+  // คำนวณภาพรวมสถานะงาน
+  const taskSummary = useMemo(() => {
+    const counts = { "ยังไม่เริ่ม": 0, "กำลังดำเนินการ": 0, "ล่าช้า": 0, "แล้วเสร็จ": 0 };
+    tasks.forEach(t => {
+      if (counts[t.status] !== undefined) counts[t.status]++;
+    });
+    return counts;
+  }, [tasks]);
+
+  // คำนวณความคืบหน้ารวม
+  const totalProgress = useMemo(() => {
+    let completedWeight = 0;
+    let totalWeight = 0;
+    tasks.forEach(t => {
+      totalWeight += t.weight;
+      if (t.status === "แล้วเสร็จ") {
+        completedWeight += t.weight;
+      } else if (t.status === "กำลังดำเนินการ") {
+        completedWeight += t.weight * 0.5; // คิดให้ครึ่งหนึ่งเมื่อกำลังทำ
+      }
+    });
+    return totalWeight > 0 ? Math.round((completedWeight / totalWeight) * 100) : 0;
+  }, [tasks]);
+
   // ฟังก์ชันบันทึกสภาวะหน้างานและส่งข้อมูลเข้า Google Sheets
   const handleSaveDailyLog = async () => {
     const newLog = {
@@ -53,7 +102,6 @@ export default function App() {
     };
 
     try {
-      // ส่งข้อมูลไปที่ Google Apps Script Web App URL ของคุณ
       await fetch("https://script.google.com/macros/s/AKfycbyO1FPKdnK5qV8xXlssNmJLtVYVkcdxNU2ckuE_ORVn1cfP2tHJNMI4WgDjoZw3aKI/exec", {
         method: "POST",
         mode: "no-cors",
@@ -63,10 +111,9 @@ export default function App() {
         body: JSON.stringify(newLog),
       });
 
-      // อัปเดตตารางประวัติหน้าจอทันที
       setDailyLogs([newLog, ...dailyLogs]);
       setDailyNote("");
-      alert("บันทึกสภาวะหน้างานลง Google Drive (Google Sheets) สำเร็จเรียบร้อยครับ!");
+      alert("บันทึกสภาวะหน้างานลง Google Drive สำเร็จเรียบร้อยครับ!");
     } catch (error) {
       console.error("Error saving to Google Sheets:", error);
       alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง");
@@ -83,7 +130,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-wide">โครงการปรับปรุงศูนย์เยาวชน</h1>
-            <p className="text-xs text-slate-400">เทศบาลนครสุราษฎร์ธานี • เชื่อมต่อ Cloud (Google Sheets)</p>
+            <p className="text-xs text-slate-400">เทศบาลนครสุราษฎร์ธานี • เชื่อมต่อ Google Sheets (Cloud)</p>
           </div>
         </div>
         <div className="flex items-center space-x-3">
@@ -227,21 +274,21 @@ export default function App() {
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col justify-between">
                 <div>
                   <h3 className="text-sm font-medium text-slate-400 mb-2">ความคืบหน้าโครงการรวม</h3>
-                  <div className="text-4xl font-bold text-blue-400 mb-2">0%</div>
+                  <div className="text-4xl font-bold text-blue-400 mb-2">{totalProgress}%</div>
                   <p className="text-xs text-slate-500">อัปเดตความคืบหน้าจากสัดส่วนน้ำหนักงานทั้งหมด</p>
                 </div>
                 <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-4">
-                  <div className="bg-blue-500 h-full w-0"></div>
+                  <div className="bg-blue-500 h-full transition-all duration-300" style={{ width: `${totalProgress}%` }}></div>
                 </div>
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
                 <h3 className="text-sm font-medium text-slate-400 mb-3">สถานะงาน (Tasks)</h3>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between items-center"><span className="text-slate-300">• ยังไม่เริ่ม</span><span className="font-bold">23</span></div>
-                  <div className="flex justify-between items-center"><span className="text-blue-400">• กำลังดำเนินการ</span><span className="font-bold">0</span></div>
-                  <div className="flex justify-between items-center"><span className="text-amber-400">• ล่าช้า</span><span className="font-bold">0</span></div>
-                  <div className="flex justify-between items-center"><span className="text-emerald-400">• แล้วเสร็จ</span><span className="font-bold">0</span></div>
+                  <div className="flex justify-between items-center"><span className="text-slate-300">• ยังไม่เริ่ม</span><span className="font-bold">{taskSummary["ยังไม่เริ่ม"]}</span></div>
+                  <div className="flex justify-between items-center"><span className="text-blue-400">• กำลังดำเนินการ</span><span className="font-bold">{taskSummary["กำลังดำเนินการ"]}</span></div>
+                  <div className="flex justify-between items-center"><span className="text-amber-400">• ล่าช้า</span><span className="font-bold">{taskSummary["ล่าช้า"]}</span></div>
+                  <div className="flex justify-between items-center"><span className="text-emerald-400">• แล้วเสร็จ</span><span className="font-bold">{taskSummary["แล้วเสร็จ"]}</span></div>
                 </div>
               </div>
 
@@ -251,8 +298,8 @@ export default function App() {
                   <span className="text-xl font-bold text-amber-500">11 / 11</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-slate-800 pt-3">
-                  <span className="text-sm text-slate-400 flex items-center space-x-2"><Clock size={16} className="text-blue-400" /><span>เวลาประเมิน</span></span>
-                  <span className="text-xl font-bold text-blue-400">75 วัน</span>
+                  <span className="text-sm text-slate-400 flex items-center space-x-2"><Clock size={16} className="text-blue-400" /><span>เวลาประเมินรวม</span></span>
+                  <span className="text-xl font-bold text-blue-400">{tasks.reduce((sum, t) => sum + t.duration, 0)} วัน</span>
                 </div>
               </div>
             </div>
@@ -260,18 +307,75 @@ export default function App() {
         )}
 
         {activeTab === "tasks" && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg text-center py-12">
-            <ListTodo size={48} className="mx-auto text-slate-600 mb-3" />
-            <h2 className="text-lg font-medium text-slate-300">หน้าจัดการแผนงานและอัปเดตสถานะ</h2>
-            <p className="text-sm text-slate-500 mt-1">สามารถเลือกปรับแต่งสถานะงานก่อสร้างแต่ละหมวดหมู่ได้ที่นี่</p>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <h2 className="text-lg font-bold text-slate-200">แผนงานและอัปเดตสถานะโครงการ</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-slate-300">
+                <thead className="bg-slate-800 text-xs uppercase text-slate-400">
+                  <tr>
+                    <th className="p-3">หมวดหมู่</th>
+                    <th className="p-3">ชื่องาน</th>
+                    <th className="p-3">ระยะเวลา (วัน)</th>
+                    <th className="p-3">สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {tasks.map((task) => (
+                    <tr key={task.id} className="hover:bg-slate-800/40">
+                      <td className="p-3 text-xs text-slate-400">{task.category}</td>
+                      <td className="p-3 font-medium text-slate-200">{task.name}</td>
+                      <td className="p-3">
+                        <input
+                          type="number"
+                          value={task.duration}
+                          onChange={(e) => handleDurationChange(task.id, e.target.value)}
+                          className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-center"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <select
+                          value={task.status}
+                          onChange={(e) => handleStatusChange(task.id, e.target.value)}
+                          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-200 focus:outline-none"
+                        >
+                          <option value="ยังไม่เริ่ม">ยังไม่เริ่ม</option>
+                          <option value="กำลังดำเนินการ">กำลังดำเนินการ</option>
+                          <option value="ล่าช้า">ล่าช้า</option>
+                          <option value="แล้วเสร็จ">แล้วเสร็จ</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {activeTab === "gantt" && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg text-center py-12">
-            <CalendarDays size={48} className="mx-auto text-slate-600 mb-3" />
-            <h2 className="text-lg font-medium text-slate-300">แผนภูมิเวลา (Gantt Chart)</h2>
-            <p className="text-sm text-slate-500 mt-1">แสดงกรอบเวลาและระยะเวลาดำเนินการโครงการทั้งหมด</p>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
+            <h2 className="text-lg font-bold text-slate-200">แผนภูมิเวลา (Gantt Chart)</h2>
+            <p className="text-xs text-slate-400">แสดงภาพรวมกรอบเวลางานแต่ละหมวดหมู่ สามารถปรับแก้จำนวนวันในหน้าแผนงานได้ทันที</p>
+            <div className="space-y-3 pt-4">
+              {tasks.map((task) => (
+                <div key={task.id} className="space-y-1">
+                  <div className="flex justify-between text-xs text-slate-300">
+                    <span>{task.name}</span>
+                    <span className="font-mono text-blue-400">{task.duration} วัน ({task.status})</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 ${
+                        task.status === "แล้วเสร็จ" ? "bg-emerald-500" :
+                        task.status === "กำลังดำเนินการ" ? "bg-blue-500" :
+                        task.status === "ล่าช้า" ? "bg-amber-500" : "bg-slate-600"
+                      }`}
+                      style={{ width: `${Math.min(task.duration * 6, 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </main>
