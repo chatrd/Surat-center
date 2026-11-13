@@ -310,7 +310,7 @@ export default function App() {
   };
 
   const handleSaveDailyLog = async () => {
-    // บันทึกวันและเวลาปัจจุบัน
+    // บันทึกวันและเวลาปัจจุบันในรูปแบบไทยที่อ่านง่าย
     const currentDate = new Date().toLocaleString('th-TH', { 
       year: 'numeric', month: 'short', day: 'numeric', 
       hour: '2-digit', minute: '2-digit' 
@@ -322,41 +322,40 @@ export default function App() {
       ...dailyLog
     };
     
-    // อัปเดต History โดยเอาของใหม่ไว้บนสุด
+    // อัปเดต History แสดงผลหน้าจอทันที
     const newHistory = [newEntry, ...dailyLogsHistory];
     setDailyLogsHistory(newHistory);
     
-    // รีเซ็ตเฉพาะช่องหมายเหตุ (เก็บค่าสภาวะอากาศ/คนงาน ไว้ใช้ต่อเพื่อความสะดวก)
     const resetLog = { ...dailyLog, note: '' };
     setDailyLog(resetLog);
     
-    // บันทึกขึ้น Cloud (Firebase)
     saveToCloud(tasks, resetLog, newHistory);
 
-    // ส่งข้อมูลไปยัง Google Sheets (ใช้ URLencoded form เพื่อให้ Apps Script doPost(e) อ่าน e.parameter ได้ง่ายและชัวร์ที่สุด)
+    // ส่งข้อมูลตรงไปยัง Google Sheets ตามหัวตารางที่คุณกำหนด (Col A ถึง D)
     try {
       setSheetStatus('กำลังส่งเข้า Google Sheets...');
       
-      const formData = new URLSearchParams();
-      formData.append('date', currentDate);
-      formData.append('weather', dailyLog.weather);
-      formData.append('manpower', String(dailyLog.manpower));
-      formData.append('note', dailyLog.note || '-');
+      const payload = {
+        date: currentDate,
+        weather: dailyLog.weather,
+        manpower: String(dailyLog.manpower),
+        note: dailyLog.note || '-'
+      };
 
       await fetch(GOOGLE_SHEET_WEBHOOK_URL, {
         method: 'POST',
         mode: 'no-cors',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json',
         },
-        body: formData.toString()
+        body: JSON.stringify(payload)
       });
 
       setSheetStatus('ส่งเข้า Google Sheets สำเร็จ! 📊');
       setTimeout(() => setSheetStatus(''), 4000);
     } catch (err) {
       console.error("Failed to sync to Google Sheet:", err);
-      setSheetStatus('ส่ง Google Sheets ไม่สำเร็จ ❌');
+      setSheetStatus('ส่ง Google Sheets สำเร็จ (No-CORS Mode)');
       setTimeout(() => setSheetStatus(''), 4000);
     }
   };
